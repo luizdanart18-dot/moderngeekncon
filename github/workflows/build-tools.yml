@@ -1,6 +1,3 @@
-# Compila SOMENTE as ferramentas (moderngekko-port, moderngekko-run, dolrecomp) no Windows.
-# Nao usa nem envia nenhum dado de jogo.
-# Salve no seu repositorio como: .github/workflows/build-tools.yml
 name: Build ModernGekko tools
 
 on:
