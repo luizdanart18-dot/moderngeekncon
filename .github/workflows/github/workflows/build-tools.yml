@@ -1,0 +1,76 @@
+name: Build ModernGekko tools
+
+on:
+  workflow_dispatch:
+
+env:
+  # Mesmo commit do seu ZIP do ModernGekko (merge do PR #39).
+  MG_COMMIT: a2e4e2b026a68d4848f20ebf16f0e0ddeb573957
+  # Caminho IGUAL ao que o script PowerShell usa no seu PC (o port grava esse caminho no .exe).
+  MG_DIR: C:\GCRecomp\projeto\lib\ModernGekko
+  BUILD_DIR: C:\GCRecomp\projeto\build\msvc
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - name: Ambiente MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Instalar Ninja
+        shell: pwsh
+        run: |
+          choco install ninja --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Baixar ModernGekko no commit fixado e seus submodulos
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+          New-Item -ItemType Directory -Force -Path $env:MG_DIR | Out-Null
+          Set-Location $env:MG_DIR
+          git init
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          git remote add origin https://github.com/ExpansionPak/ModernGekko.git
+          git fetch --depth 1 origin $env:MG_COMMIT
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Falhou com --depth 1; tentando sem shallow..."
+            git submodule update --init --recursive
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          git submodule status --recursive
+
+      - name: Configurar (CMake + Ninja + cl)
+        shell: pwsh
+        run: |
+          cmake -S $env:MG_DIR -B $env:BUILD_DIR -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DDOLRECOMP_ENABLE_LLVM=OFF `
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Compilar moderngekko-port (traz moderngekko-run e dolrecomp)
+        shell: pwsh
+        run: |
+          cmake --build $env:BUILD_DIR --target moderngekko-port
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Listar resultado
+        shell: pwsh
+        run: Get-ChildItem $env:BUILD_DIR -File | Where-Object { $_.Extension -in '.exe','.dll' } | Select-Object Name, Length
+
+      - name: Guardar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: moderngekko-tools-msvc
+          if-no-files-found: error
+          path: |
+            C:/GCRecomp/projeto/build/msvc/*.exe
+            C:/GCRecomp/projeto/build/msvc/*.dll
+            C:/GCRecomp/projeto/build/msvc/Sys/
